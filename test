@@ -1,0 +1,43 @@
+# echo qsub -N $jobName -t1-$endJob -vparamListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript >>job-command
+
+batchScript="test_cbda.pbs"
+if [[ ! -f $batchScript ]] ; then
+	echo "batch script '$batchScript' doesn't exist"
+	exit 158
+fi
+
+numExp=$1
+numRep=$2
+walltimeLimit=$3
+paramListFile=$4
+
+if [[ -z $numExp ]] || [[ -z $numRep ]] || [[ -z walltimeLimit]]; then
+	echo "Not all arguments specified"
+	echo "Usage: lhssubmit abm start-experiment finish-experiment replication-start replication-finish walltime-limit(hhh:mm:ss) model-options-file runs-per-job [account-number] [no]"
+	 exit 200
+elif [[ ! $numExp =~ ^[0-9]+$ ]] || [[ ! $numRep =~ ^[0-9]+$ ]]; then
+	echo "Not all numeric arguments are non-negative integers"
+	 exit 300
+elif [[ $walltimeLimit == "000:00:00" ]]; then
+	echo "The wall time limit of '$walltimeLimit' is zero."
+	exit 775
+fi
+
+runCount=$(( $numExp * $numRep ))
+batchJobOrdinal=0
+
+for (( exp = 0; exp <= $numExp; ++exp )); do
+
+	for (( rep = 0; rep <= $numRep; ++rep )); do
+
+		(( ++batchJobOrdinal ))
+		jobName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
+		echo qsub -N $jobName $batchScript >>job-command
+		qsub -N $jobName $batchScript | tee -a job-id
+	done
+done
+
+# Question
+# 1. previously we are writting qsub ... -vparamListFile... how did they pass to the pbs file?
+# 2. In pbs file you can specify parameters there, but our model is in R, and how could I provide parameters in pbs file?
+# 3. A grammar problem: sh
