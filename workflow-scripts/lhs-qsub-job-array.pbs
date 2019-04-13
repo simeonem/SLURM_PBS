@@ -1,0 +1,68 @@
+#!/bin/bash
+#PBS -S /bin/bash
+#PBS -j oe
+#PBS -V
+#PBS -l procs=1,walltime=024:00:00
+#PBS -m n
+
+# Set the file permission mask so that the standard output/standard error
+# file has permissions rw-rw----
+#PBS -W umask=007
+
+# This script assumes it was invoked from the main LHS directory,
+# i.e. that ${PBS_O_WORKDIR} is the main LHS directory.
+
+echo "PBS_JOBID: ${PBS_JOBID}"
+echo "PBS_ARRAYID: ${PBS_ARRAYID}"
+
+# Set the file permission mask so that all files created by this script
+# have permissions rw-rw---- and directories have permissions rwxrwx---.
+umask 007
+
+# Program output is written directly to the result directory, not to the compute node
+# scratch space.
+
+cd ${PBS_O_WORKDIR}
+
+# Blank line between output from separate invokations of this script due to preemption.
+echo
+echo "=============================================================="
+
+# For replications in an LHS, for each experiment there is a sub-directory of
+# the experiment directory for each replication's results.
+echo "Running on: " `cat ${PBS_NODEFILE} ` " in: " `pwd` " at `date`"
+
+# Do the runs for this batch job, based on the job array index and the number
+# of runs per job. We do each run sequentially. When runs per job > 1 this is
+# to use at least 1 hour of compute time for short runs, since on the XSEDE
+# Comet system the minimum charge is 1 hour.
+idx=${PBS_ARRAYID}
+(( startRun = (idx - 1) * runsPerJob + 1))
+
+(( endRun = idx * runsPerJob ))
+totalRunCount=`wc -l $paramListFile | cut -d" " -f1`
+if (( endRun > totalRunCount )); then
+	endRun=$totalRunCount
+fi
+
+echo "Doing runs $startRun to $endRun"
+for (( run = startRun; run <= endRun; ++run))
+do
+	# Get the command to run from the paramList file.
+	cmd=`sed -n "${run}p" $paramListFile`
+	
+	echo "Run: $run"
+	echo "cmd: $cmd"
+	
+	if [[ -z "$cmd" ]]; then
+		echo "No command found in paramList file '$paramListFile' for job array index '$run'."
+		continue
+	fi
+	
+	# $cmd by itself won't work. The model executable will complain about
+	# invalid command line arguments.
+	eval $cmd || echo "ERROR running model..." 1>&2;
+done
+
+# Get the run time of this script, to a resolution of 1 second.
+echo "Runtime $SECONDS"

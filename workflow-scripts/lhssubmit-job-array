@@ -1,0 +1,340 @@
+#!/bin/bash
+
+# A script to genertate batch job submissions for LHS runs of an agent based model.
+#
+# This script supports both the SLURM and PBS batch systems.
+
+# This script is similar to lhssubmit, except that it submits a single job
+# array, rather than performing a separate submission for each job. This
+# results in a much faster job submission when there are many batch jobs to
+# submit. It also avoids certain job submission overload issues on some
+# systems, such as the XSEDE Comet system, that do not handle well large
+# numbers of separate submissions, one for each job.
+
+# This script also has a runs per job command line option, that specifies the
+# number of model runs to perform in a single batch job. This is to avoid a
+# problem on the XSEDE Comet system, which has a minimum charge of 1 hour per
+# run, even when a run takes less than an hour. To avoid getting charged for
+# many more hours than we actually would use for an LHS with short runs, this
+# option can be specified as > 1, so that each batch job will take at least an
+# hour. For example, if running 6 runs that take 10 minutes, if each runs in a
+# separate job, we would be charged for 6 hours, not for 1 hour (60 minutes).
+# If runs per job is 6, then there is 1 batch job that does all 6 runs
+# (sequentially, not concurrently), that job will take 1 hour and we will be
+# charged for 1 hour.
+#
+# Estimate the run time for the jobs, and from that the number of runs that
+# would likely take more than an hour.  It is better to err on the side of
+# longer than an hour rather than less, to make sure we don't get charged for
+# hours we don't use. For example, if runs take about 10 minutes, use a runs
+# per job of 7 rather than 6.
+#
+# Be sure to adjust the wall time option accoriding to the runs per job. If
+# runs take 10 minutes and using a runs per job of 7 make the wall time greater
+# than 70 minutes, say 2 hours.
+
+# The script command line arguments are:
+# $1: model executable
+# $2: the first experiment for the LHS.
+# $3: the last experiment for the LHS. 
+# $4: the first replication.
+# $5: the last replication.
+# $6: the wall time limit for the submitted batch jobs. In the form hhh:mm:ss, where leading 
+#     zeros are specified and hhh is hours, 000-999, mm is minutes, 00-60, and ss is seconds, 00-60.
+# $7: the model options file.
+# $8: The number of model runs to perform in each batch job. Adjust the wall time accordingly.
+# $9: an optional system account number for systems that require it, such as the UM Flux cluster.
+# ${10}: an optional argument of "no", which means don't test the model executable. It is
+#     useful if a model executable test would take a long time. If option 9, an optional
+#     system account number is not specified, then this will be option 9 rather than option 10.
+
+# The 1st 8 arguments must be specified and arguments 2 to 5 and 8 be integer
+# numbers, with $1 <= $2 and $3 <= $4.
+
+# Usually the first replication is 1 and the last replication is the same as
+# the replication count, ex. to run 3 replications they would be "1 3". 
+#
+# Sometimes a run won't succeed or gets skipped, typically when there is some
+# problem with the batch system or the operating system or file system. In that
+# case a run might need to be redone or started separately.
+# Ex. to just run replication 2 of experiment 17 use lhssubmit gr 17 17 2 2.
+
+# To run an LHS with 50 expermiments and 3 replications per experiment, with
+# model executable gr, a 2 hour wall time limit and a Flux account number of
+# FAN-1234, use:
+# lhssubmit-job-array gr 1 50 1 3 002:00:00 lung-model-options-short.sh 1 FAN-1234
+#
+# To only run the 2nd ten experiments, for all replications, use:
+# lhssubmit-job-array gr 11 20 1 3 002:00:00 lung-model-options-short.sh 1 FAN-1234
+
+hostName=$(get-hostname)
+
+batchSystem=$(get-batch-system-name)
+
+# The SCRIPTSDIR environment variable should be defined in the user's .bashrc
+# file.
+if [[ -z "$SCRIPTSDIR" ]]; then
+	echo "SCRIPTSDIR is not defined. This should be defined in the bashrc file."
+	exit 10
+fi
+
+if [[ ! -d "$SCRIPTSDIR" ]]; then
+	echo "The scripts directory '$SCRIPTSDIR' does not exist or is not a directory."
+	echo "This should be defined in the bashrc file."
+	exit 50
+fi
+
+batchScript="$SCRIPTSDIR/lhs-qsub-job-array.pbs"
+if [[ $batchSystem == "SLURM" ]]; then
+	batchScript="$SCRIPTSDIR/lhs-sbatch-job-array.slurm"
+fi
+
+if [[ ! -f $batchScript ]] ; then
+	echo "batch script '$batchScript' doesn't exist"
+	exit 158
+fi
+
+abm=$1
+expStart=$2
+expFinish=$3
+repStart=$4
+repFinish=$5
+walltimeLimit=$6
+modelOptionsFile=$7
+runsPerJob=$8
+systemAccount=$9
+
+if [[ -z $expStart ]] || [[ -z $expFinish ]] || [[ -z $repStart ]] || [[ -z $repFinish ]] || [[ -z $walltimeLimit ]] || [[ -z $modelOptionsFile ]] || [[ -z $runsPerJob ]]; then
+	echo "Not all arguments specified"
+	echo "Usage: lhssubmit abm start-experiment finish-experiment replication-start replication-finish walltime-limit(hhh:mm:ss) model-options-file runs-per-job [account-number] [no]"
+	 exit 200
+elif [[ ! $expStart =~ ^[0-9]+$ ]] || [[ ! $expFinish =~ ^[0-9]+$ ]] || [[ ! $repStart =~ ^[0-9]+$ ]] || [[ ! $repFinish =~ ^[0-9]+$ ]]|| [[ ! $runsPerJob =~ ^[0-9]+$ ]] ; then
+	echo "Not all numeric arguments are non-negative integers"
+	 exit 300
+elif [[ $expStart -gt $expFinish ]] ; then
+	echo "Starting experiment $expStart is > finish experiment $expFinish"
+	 exit 400
+elif [[ $expStart -lt 0 ]] || [[ $expFinish -lt 0 ]] ; then
+	echo "Starting experiment $expStart or finish experiment $expFinish is < 0"
+	 exit 500
+elif [[ $repStart -gt $repFinish ]] ; then
+	echo "Starting replication $repStart is > finish replication $repFinish"
+	 exit 600
+elif [[ $repStart -le 0 ]] || [[ $repFinish -le 0 ]] ; then
+	echo "Starting replication $repStart or finish replication $repFinish is < 0"
+	 exit 700
+elif [[ ! $walltimeLimit =~ ^[0-9][0-9][0-9]:[0-9][0-9]:[0-9][0-9]$ ]]; then
+	echo "Invalid wall time limit of '$walltimeLimit':"
+	echo "Missing digit: leading 0's required? Extra digit? Missing colon? Character other than digit or colon?"
+	echo "The wall time limit format is hhh:mm:ss."
+	exit 750
+elif [[ $walltimeLimit == "000:00:00" ]]; then
+	echo "The wall time limit of '$walltimeLimit' is zero."
+	exit 775
+elif (( $runsPerJob < 1 )); then
+	echo "The runs per job of '$runsPerJob' is not >= 1."
+	exit 780
+fi
+
+# Don't do a test run if the last command line option has value "no".  If not
+# specifying a system account it will be option 8, otherwise it will be option 9.
+testRun=1
+if [[ $9 == "no" ]] || [[ ${10} == "no" ]]; then
+	testRun=0
+fi
+
+# MaxJobArraySize may not be defined for a particular batch system. If so the
+# default is unlimited.
+if [[ $batchSystem == "PBS" ]]; then
+	batchResources="-l walltime=$walltimeLimit"
+	MaxJobArraySize=`qmgr -c 'p s' | egrep "max_job_array_size" | awk '{print $NF}'`
+else
+	# Batch system is SLURM.
+	# We want the shared queue, with 1 node with 1 task (cpu core), since we
+	# are running one run of an LHS per job. We don't want each run to charge
+	# our allocation for use of more than one cpu.
+	batchResources="-t $walltimeLimit -p shared -N 1 -n 1"
+	MaxJobArraySize=`scontrol show config | egrep "MaxArraySize" | awk '{print $NF}'`
+fi
+
+# If not defined (i.e. if unlimited) then define a limit, since the job
+# submission code below assumes MaxJobArraySize has a value > 0.
+if [[ -z "$MaxJobArraySize" ]]; then
+	MaxJobArraySize=100000
+fi
+
+# If running on the UM Flux cluster, a PBS account number is required and the
+# flux queue must be specified.
+if [[ $hostName == "flux" ]]; then
+	if [[ -z $systemAccount ]]; then
+		echo -e "\n\nRunning on Flux but no Flux PBS account specified, ex. linderma_flux or kirschne_flux\n"
+		exit 900
+	elif [[ $systemAccount == "no" ]]; then
+		echo -e "\n\nRunning on Flux and the Flux PBS account specified is 'no'. It should be something like, ex. linderma_flux or kirschne_flux\n"
+		exit 950
+	fi 
+	batchResources="$batchResources -A $systemAccount -l qos=flux -q flux"
+fi
+
+expCount=$(( expFinish - expStart + 1 ))
+repCount=$(( repFinish - repStart + 1 ))
+runCount=$(( $expCount * $repCount ))
+
+# Here you can put code or call scripts to perform more checks - check the
+# model options file, check that model input data exists and other checks on
+# the content of the input data, check that the model executable exists, runs,
+# etc.
+
+# Check the model options.
+if ! check-model-options.sh $modelOptionsFile; then
+	exit 1000
+fi
+
+abm=$(check-model-executable.sh $abm)
+if (( $? != 0 )); then
+	echo $abm
+	exit 1300
+fi
+
+# Submit the LHS runs, but only for those runs that are not finished yet -
+# don't have a runCompleted file.
+unCompletedRunCount=0
+completedRunCount=0
+scannedRunCount=0
+rm -f job-id job-command
+
+# Get the command line options from the model options file.
+modelOptions=$(./$modelOptionsFile)
+
+
+# There is one paramList file for all the runs in all the batch jobs submitted.
+# Each batch job has a job array with start and end job indices. Each batch
+# script is passed, by the batch system, the job array index for that run, as
+# an environment variable. We also pass in on the sbatch or qsub command the
+# runsPerJob, MaxJobArraySize and the batchJobOrdinal as environment variables.
+# These are used to determine which lines from the paramList file that batch
+# job is to use for the runs it is to run.
+paramListFile="paramList"
+rm -f $paramListFile
+batchJobOrdinal=0
+
+(( jobRunLimit = MaxJobArraySize * runsPerJob ))
+#echo "DBG: jobRunLimit: $jobRunLimit"
+
+for (( exp = $expStart; exp <= $expFinish; ++exp )); do
+
+	expModelOptions=${modelOptions}
+	expModelOptionsFile=$modelOptionsFile
+
+	for (( rep = $repStart; rep <= $repFinish; ++rep )); do
+		(( ++scannedRunCount ))
+		if (( scannedRunCount % 100 == 0 )); then
+			echo "$exp $rep"
+		fi
+
+		resultDir="exp$exp/exp$exp-$rep"
+		rcFile="$resultDir/runCompleted"
+		if [[ -d $resultDir && -f $rcFile ]]; then
+			# The run directory and the run completed file both exist, so
+			# the run has completed.
+			(( ++completedRunCount ))
+		else
+			(( ++unCompletedRunCount ))
+			# Either the run directory does not exist, or it does exist and the
+			# run completed file does not, so the run has not completed yet.
+			mkdir -p $resultDir # Make the directory, in case it doesn't exist.
+
+			# If there is an existing seed file in the run directory, use that
+			# seed for the run.
+
+			# Otherwise, get a random seed.  Creating a random seed here, based on the
+			# /dev/urandom device, avoids any problems with using the same seed for
+			# more than one run
+			seedFile="$resultDir/seed"
+			if [[ -f $seedFile ]]; then
+				seed=`cat $seedFile`
+				if [[ ! "$seed" =~ ^[0-9]+$ ]]; then
+					echo "Aborting: seed '$seed' from prior seed file '$seedFile' is NOT an integer"
+					exit 1
+				fi
+			else
+				seed=`random-integer-limited.sh`
+			fi
+			seedOption="-s $seed"
+
+			# This adds input (-i) and output (-o) options, which are specific
+			# to the run, to the model options for the run.
+			expRepModelOptions="$expModelOptions"
+			expRepModelOptions="-o $resultDir $seedOption $expRepModelOptions"
+			expRepModelOptions="-i $exp.xml $expRepModelOptions"
+
+			# Write the command line for the run to the paramList file.
+			echo "/usr/bin/time --append -o $resultDir/runtime -f \"%e\" $abm $expRepModelOptions > $resultDir/stdout 2>&1" >> $paramListFile
+		
+			if (( unCompletedRunCount % jobRunLimit == 0 )); then
+				# We've put the maximum number of runs in the job array. 
+				# Submit the batch job and setup for the next batch job.
+
+				(( ++batchJobOrdinal ))
+				echo "submitting batch job $batchJobOrdinal"
+
+				# Construct a job name wth a prefix of the tail end of the current directory
+				# name and a suffix of the batch job ordinal.
+				jobName=$(get-pbs-job-array-name.sh $batchJobOrdinal)
+
+				if [[ $batchSystem == "PBS" ]]; then
+					echo qsub -N $jobName -t1-$MaxJobArraySize -vparamListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript >>job-command
+					qsub -N $jobName -t1-$MaxJobArraySize -vparamListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript | tee -a job-id
+				else
+					# batchSystem is SLURM.
+					echo sbatch -J $jobName -a1-$MaxJobArraySize --export=ALL --export=paramListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript >>job-command
+					sbatch -J $jobName -a1-$MaxJobArraySize --export=ALL --export=paramListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript | tee -a job-id
+				fi
+			fi
+		fi
+	done
+done
+
+if (( unCompletedRunCount == 0 )); then
+	echo -e "\nAll runs have completed (have a runCompleted file) - nothing to do.\n"
+else
+	# Submit the last batch job, if needed.
+	(( submittedRuns = batchJobOrdinal * jobRunLimit ))
+	(( unsubmittedRuns = unCompletedRunCount - submittedRuns ))
+	#echo "DBG: batchJobOrdinal: $batchJobOrdinal submittedRuns: $submittedRuns unsubmittedRuns: $unsubmittedRuns"
+	if (( unsubmittedRuns > 0 )); then
+        (( endJob = unsubmittedRuns / runsPerJob ))
+        if (( unsubmittedRuns % runsPerJob != 0 )); then
+            (( ++endJob ))
+        fi
+
+		(( ++batchJobOrdinal ))
+
+		#echo "DBG: endJob: $endJob"
+		echo "submitting batch job $batchJobOrdinal"
+
+		# Construct a job name wth a prefix of the tail end of the current directory
+		# name and a suffix of the batch job ordinal.
+		jobName=$(get-pbs-job-array-name.sh $batchJobOrdinal)
+
+		if [[ $batchSystem == "PBS" ]]; then
+			echo qsub -N $jobName -t1-$endJob -vparamListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript >>job-command
+			qsub -N $jobName -t1-$endJob -vparamListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript | tee -a job-id
+		else
+			# batchSystem is SLURM.
+			echo sbatch -J $jobName -a1-$endJob --export=ALL --export=paramListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript >>job-command
+			sbatch -J $jobName -a1-$endJob --export=ALL --export=paramListFile=$paramListFile,runsPerJob=$runsPerJob,MaxJobArraySize=$MaxJobArraySize,batchJobOrdinal=$batchJobOrdinal $batchResources $batchScript | tee -a job-id
+		fi
+	fi
+
+	echo -e "\n\nSubmitted $unCompletedRunCount runs out of $runCount total runs for the LHS" 
+	echo -e "$batchJobOrdinal jobs submitted.\n"
+
+	# Echo the command as the user typed it, so there is a record of what was done.
+	# Append to the command history file, so we can more easily track submissions
+	# and resubmissions. Only do this when runs actually submitted.
+	commandName=$(basename $0)
+	echo "`date +\"%Y-%m-%d %k:%M:%S\"`:     $commandName $*" >> submission-command-history
+fi
+
+trim-job-id-file.sh

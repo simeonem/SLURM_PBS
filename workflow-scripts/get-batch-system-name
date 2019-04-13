@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# Get the name of the batch system for the current host system.
+pbsSystems="flux"
+slurmSystems="greatlakes"
+
+hostName=$(get-hostname)
+if [[ $pbsSystems =~ "$hostName" ]]; then
+	batchSystemName="PBS"
+elif [[ $slurmSystems =~ "$hostName" ]]; then
+	batchSystemName="SLURM"
+else
+	batchSystemName="unknown"
+fi
+echo "$batchSystemName"

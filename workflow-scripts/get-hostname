@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Get the host name of the system. 
+#
+# Strip off any extraneous part of the name, just keep the start of the name,
+# which indicates the system we are on.
+#
+# Some systems have multiple login hosts, all with the same prefix and a unique
+# (often numeric) suffix. Others include part of the domain name as a suffix in
+# the host name.
+#
+# The particular formats don't follow a defined pattern across systems, so the
+# code here is system specific.
+#
+# The returned host name is used in other scripts to determine characteristics
+# of the local system relevant to that other script, ex. what batch system it
+# uses (PBS, SLURM, etc.). 
+
+hostName=$(hostname)
+hostName=${hostName/flux-*.umich.edu/flux}
+hostName=${hostName/greatlakes-*.umich.edu/greatlakes}
+
+
+echo $hostName
+
