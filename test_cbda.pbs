@@ -1,0 +1,79 @@
+#!/bin/bash
+
+##################
+####  PBS preamble
+
+#### #### ####  These are the most frequently changing options
+
+####  Job name, letters, numbers and _ ONLY  (varying names in first 10 characters)
+#PBS -N 1234
+
+####  Request resources here
+####    These are typically, number of processors, amount of memory,
+####    an the amount of time a job requires.  May include processor
+####    type, too.
+
+#PBS -l nodes=4:ppn=2,pmem=1gb,walltime=5:00:00
+# processers per node, node=1:ppn, e.g., 
+# 1:40(MAX) never use more than 1:20
+# NO SPACES
+
+
+####  Flux account and queue specification here
+####    These will change if you work on multiple projects, or need
+####    special hardware, like large memory nodes or GPUs or,
+####    or if you use software that is restricted to campus use.
+
+#PBS -A dinov_fluxoe
+#PBS -q fluxoe
+
+#### #### ####  These are the least frequently changing options
+
+####  Your e-mail address and when you want e-mail
+
+#PBS -M wuqiuche@umich.edu
+#PBS -m bea
+# b=begin, e=end, a=abort, n=no
+
+####  Join output and error; pass environment to job
+
+#PBS -j oe
+#PBS -V
+
+# Add a note here to say what software modules should be loaded.
+# for this job to run successfully.
+# It will be convenient if you give the actual load command(s), e.g.,
+#
+# module load intel/16.0.4
+
+####  End PBS preamble
+##################
+
+####  PBS job only tasks
+
+##  Print the nodename(s) to the output in case needed for diagnostics,
+##  or if you need information about the hardware after the job ran.
+if [ -e "$PBS_NODEFILE" ] ; then
+   echo "Running on"
+   uniq -c $PBS_NODEFILE
+fi
+
+##  Change to the directory from which you submit the job, if running
+##  from within a job
+if [ -d "$PBS_O_WORKDIR" ] ; then
+    cd $PBS_O_WORKDIR
+fi
+
+##
+##  Note:  In batch jobs, programs should always run in foreground.  Do
+##         not use an & at the end of a command. Bad things will happen.
+#
+####  Commands your job should run follow this line
+
+echo "Running from $(pwd)"
+
+# To Run an R Script
+R CMD BATCH cbda_example.R test_cbda.out
+
+##  If you copied any files to /tmp, make sure you delete them here!
+

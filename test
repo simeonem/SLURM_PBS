@@ -11,11 +11,7 @@ numRep=$2
 walltimeLimit=$3
 paramListFile=$4
 
-if [[ -z $numExp ]] || [[ -z $numRep ]] || [[ -z walltimeLimit]]; then
-	echo "Not all arguments specified"
-	echo "Usage: lhssubmit abm start-experiment finish-experiment replication-start replication-finish walltime-limit(hhh:mm:ss) model-options-file runs-per-job [account-number] [no]"
-	 exit 200
-elif [[ ! $numExp =~ ^[0-9]+$ ]] || [[ ! $numRep =~ ^[0-9]+$ ]]; then
+if [[ ! $numExp =~ ^[0-9]+$ ]] || [[ ! $numRep =~ ^[0-9]+$ ]]; then
 	echo "Not all numeric arguments are non-negative integers"
 	 exit 300
 elif [[ $walltimeLimit == "000:00:00" ]]; then
@@ -32,8 +28,9 @@ for (( exp = 0; exp <= $numExp; ++exp )); do
 
 		(( ++batchJobOrdinal ))
 		jobName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
-		echo qsub -N $jobName $batchScript >>job-command
-		qsub -N $jobName $batchScript | tee -a job-id
+		echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript
+		#echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript >> job-command
+		#qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript | tee -a job-id
 	done
 done
 
