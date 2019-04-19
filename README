@@ -1,0 +1,23 @@
+===========================
+A. STRUCTURE
+
+This template has 3 parts: test(a shell script), test_cbda_get_name.sh(a shell script), test_cbda.pbs(a pbs file).
+
+The first file, "test", is responsible for generating qsub command to the flux. To run the test file, simply enter
+sh test NUM_EXP NUM_REP
+where NUM_EXP is a numeric value for number of experiments, for example, 3000. NUM_REP is a legacy numeric value for number of replications. In our project it would be 1.
+
+When running the file "test", it will call the "test_cbda_get_name.sh" to generate a separate name for each job.
+
+Finally, with the pbs file ready in our working directory, those commands can submit a series of jobs to the server.
+===========================
+B. Passing Parameters to R
+
+This is doable via the environmental variable.
+
+Environmental Variable
+The "test" file is responsible for generating the qsub command, and you can specify some environmental varibales in the command. Namely, if you look at the line 29, you will see
+		echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript
+This is how you use -v to define environmental variables in the shell script. In this command, we define enviromental variables "paramListFile" and "batchJobOrdinal". Then, you may use "$paramListFile" in the pbs file to access those variable. Then we pass a variable from the shell script to the pbs file.
+==========================
+
