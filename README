@@ -1,7 +1,22 @@
 ===========================
 A. STRUCTURE
 
-This template has 3 parts: test(a shell script), test_cbda_get_name.sh(a shell script), test_cbda.pbs(a pbs file).
+This template has 4 parts: test(a shell script), test_cbda_get_name.sh(a shell script), test_cbda.pbs(a pbs file), cbda_example.R(an R file). Here is the general workflow:
+
+
+test
+|
+|\ 
+| \---call test_cbda_get_name.sh to generate names for jobs and output files
+| /
+|/
+|
+generate PBS submission command so that test_cbda.pbs is submitted to flux
+|
+|
+On flux, test_cbda.pbs generates shell command to run cbda_example.R
+
+
 
 The first file, "test", is responsible for generating qsub command to the flux. To run the test file, simply enter
 sh test NUM_EXP NUM_REP
@@ -9,7 +24,7 @@ where NUM_EXP is a numeric value for number of experiments, for example, 3000. N
 
 When running the file "test", it will call the "test_cbda_get_name.sh" to generate a separate name for each job.
 
-Finally, with the pbs file ready in our working directory, those commands can submit a series of jobs to the server.
+Then, with the pbs file ready in our working directory, those commands can submit a series of jobs to the server.
 ===========================
 B. Passing Parameters to R
 
@@ -19,5 +34,18 @@ Environmental Variable
 The "test" file is responsible for generating the qsub command, and you can specify some environmental varibales in the command. Namely, if you look at the line 29, you will see
 		echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript
 This is how you use -v to define environmental variables in the shell script. In this command, we define enviromental variables "paramListFile" and "batchJobOrdinal". Then, you may use "$paramListFile" in the pbs file to access those variable. Then we pass a variable from the shell script to the pbs file.
+
+The next step will be passing parameters to R file from PBS file. At the end of PBS file, we have the shell command
+		eval "R CMD BATCH '--args a=1 b=c(2,5,6) passIn=${batchJobOrdinal}' cbda_example.R $outFileName"
+You can specify the parameters in the '--args ...' string.
+
+Finally, you can access those parameters in R by
+		args <- commandArgs(TRUE)
+		for(i in 1:length(args))
+    		{
+    		#The printed value will be the parameters; you can use them in the R file.
+        	print(eval(parse(text=args[[i]])))
+    		}
+which are line 4 - line 9 in the cbda_example.R.
 ==========================
 
