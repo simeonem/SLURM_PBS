@@ -73,8 +73,8 @@ fi
 echo "Running from $(pwd)"
 
 # To Run an R Script
-# To pass parameters, replacing the 'a=1 b=c(2,5,6) with your own parameters'
-R CMD BATCH '--args a=1 b=c(2,5,6)' cbda_example.R test_cbda.out
+# To pass parameters, replacing the 'a=1 b=c(2,5,6) passIn=batchJobOrdinal' with your own parameters
+eval "R CMD BATCH '--args a=1 b=c(2,5,6) passIn=${batchJobOrdinal}' cbda_example.R $outFileName"
 
 ##  If you copied any files to /tmp, make sure you delete them here!
 

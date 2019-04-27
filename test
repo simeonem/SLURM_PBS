@@ -20,14 +20,15 @@ fi
 runCount=$(( $numExp * $numRep ))
 batchJobOrdinal=0
 
-for (( exp = 0; exp <= $numExp; ++exp )); do
+for (( exp = 1; exp <= $numExp; ++exp )); do
 
-	for (( rep = 0; rep <= $numRep; ++rep )); do
+	for (( rep = 1; rep <= $numRep; ++rep )); do
 
 		(( ++batchJobOrdinal ))
 		jobName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
-		echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript
+		outFileName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
+		echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
 		#echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript >> job-command
-		#qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript | tee -a job-id
+		qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
 	done
 done
