@@ -1,4 +1,7 @@
-batchSystem=$(get-batch-system-name)
+#!/bin/bash
+
+#Ready to be changed
+batchSystem="SLURM"
 
 batchScript="test_cbda.pbs"
 if [[ $batchSystem == "SLURM" ]]; then
@@ -38,8 +41,9 @@ for (( exp = 1; exp <= $numExp; ++exp )); do
 			#echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript >> job-command
 			qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
 		else
-			echo sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript >>job-command
-			sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript | tee -a job-id
-		done
+			echo sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
+			sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
+		fi
+	done
 done
 
