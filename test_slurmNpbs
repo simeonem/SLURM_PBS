@@ -1,0 +1,45 @@
+batchSystem=$(get-batch-system-name)
+
+batchScript="test_cbda.pbs"
+if [[ $batchSystem == "SLURM" ]]; then
+	batchScript="test_cbda.slurm"
+fi
+
+if [[ ! -f $batchScript ]] ; then
+	echo "batch script '$batchScript' doesn't exist"
+	exit 158
+fi
+
+numExp=$1
+numRep=$2
+walltimeLimit=$3
+paramListFile=$4
+
+if [[ ! $numExp =~ ^[0-9]+$ ]] || [[ ! $numRep =~ ^[0-9]+$ ]]; then
+	echo "Not all numeric arguments are non-negative integers"
+	 exit 300
+elif [[ $walltimeLimit == "000:00:00" ]]; then
+	echo "The wall time limit of '$walltimeLimit' is zero."
+	exit 775
+fi
+
+runCount=$(( $numExp * $numRep ))
+batchJobOrdinal=0
+
+for (( exp = 1; exp <= $numExp; ++exp )); do
+
+	for (( rep = 1; rep <= $numRep; ++rep )); do
+
+		(( ++batchJobOrdinal ))
+		jobName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
+		outFileName=$(sh test_cbda_get_name.sh $batchJobOrdinal)
+		if [[ $batchSystem == "PBS" ]]; then
+			echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
+			#echo qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal $batchScript >> job-command
+			qsub -N $jobName -vparamListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript
+		else
+			echo sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript >>job-command
+			sbatch -J $jobName --export=ALL --export=paramListFile=$paramListFile,batchJobOrdinal=$batchJobOrdinal,outFileName=$outFileName $batchScript | tee -a job-id
+		done
+done
+
